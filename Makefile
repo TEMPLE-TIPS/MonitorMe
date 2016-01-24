@@ -18,16 +18,16 @@ all: server_run.exe
 
 server_run.exe: 
 	g++ \
-		 server_run.cpp \
+		server_run.cpp \
+		./src/server_capture/server_capture.cpp \
 		./src/opencv_dev/motion_detect.cpp \
 		-o server_run.exe \
 		$(INCLUDES) $(LFLAGS) $(LDLIBS)
 
-server_run2.exe: server_run.o ./lib/motion_detect.o
+server_capture.o: ./src/server_capture/server_capture.cpp  
 	g++ \
-		server_run.o \
-		./src/opencv_dev/motion_detect.o \
-		-o server_run.exe \
+		-c ./src/server_capture/server_capture.cpp \
+		-o ./src/server_capture/server_capture.o \
 		$(INCLUDES) $(LFLAGS) $(LDLIBS)
 
 server_run.o: server_run.cpp  

@@ -1,207 +1,133 @@
-/*
- * motion_detect.cpp
- * To accompany instructions at:
- *      http://sidekick.windforwings.com/2012/12/opencv-motion-detection-based-action.html
- *
- *  Created on: Dec 02, 2012
- *	Author: tan
- *
- */
-#include <iostream>
-#include <stdlib.h>
-#include <stdio.h>
+//
+//  Created by Cedric Verstraeten on 18/02/14.
+//  Copyright (c) 2014 Cedric Verstraeten. All rights reserved.
+//
 
-#include <opencv/cv.h>
-#include <opencv/highgui.h>
-#include <opencv2/core/core.hpp>
-#include <opencv2/imgproc/imgproc.hpp>
-#include <opencv2/highgui/highgui.hpp>
+#include <iostream>
+#include <fstream>
+
+#include "opencv2/opencv.hpp"
+#include "opencv2/highgui/highgui.hpp"
+#include <dirent.h>
+#include <sstream>
+#include <sys/types.h>
+#include <sys/stat.h>
 
 using namespace std;
 using namespace cv;
 
-IplImage		*img_read, *img_smooth, *img_color, *img_diff, *img_temp, *img_edge_color, *img_moving_avg;
-IplImage		*img_work, *img_gray, *img_edge_gray, *img_contour;
-CvMemStorage	*mem_store;
-CvSize 			sz_of_img;
-int 			depth_of_img, channels_of_img;
-bool            initialized = false;
-
-int 			param_display_stage = 7;
-int 			param_moving_avg_wt = 1; // default = 2
-int 			param_detect_threshold = 20;
-int 			param_min_obj_size = 2;
-int 			param_dilation_amt = 30;
-int 			param_erosion_amt = 10;
-int 			param_brightness_factor = 50;
-int 			param_contrast_factor = 0;
-int 			param_proc_delay = 1000;
-const int 		MAX_PROC_DELAY = 1000;
-const int 		MIN_PROC_DELAY = 100;
-
-
-/*****************************************************
- * print what optimization libraries are available
- *****************************************************/
-void print_lib_version() {
-	const char* libraries;
-	const char* modules;
-	cvGetModuleInfo(NULL, &libraries, &modules);
-	printf("Libraries: %s\nModules: %s\n", libraries, modules);
-}
-
-/*****************************************************
- * limit max size of image to be processed to 800x600
- *****************************************************/
-void get_approp_size(IplImage *img, CvSize &img_size, int &img_depth, int &img_channels) {
-	CvSize ori_size = cvGetSize(img);
-	img_depth = img->depth;
-	img_channels = img->nChannels;
-
-	printf("Frame size: %d x %d\nDepth: %d\nChannels: %d\n", ori_size.width, ori_size.height, img_depth, img_channels);
-
-	float div_frac_h = 600.0/((float)ori_size.height);
-	float div_frac_w = 800.0/((float)ori_size.width);
-	float div_frac = div_frac_w < div_frac_h ? div_frac_w : div_frac_h;
-	if(div_frac > 1) div_frac = 1;
-
-	img_size.height = ori_size.height * div_frac;
-	img_size.width = ori_size.width * div_frac;
-}
-/*****************************************************
- * init and destroy globals
- *****************************************************/
-void init(void) {
-	img_work			= cvCreateImage(sz_of_img, depth_of_img, channels_of_img);
-	img_color			= cvCreateImage(sz_of_img, depth_of_img, channels_of_img);
-	img_diff			= cvCreateImage(sz_of_img, depth_of_img, channels_of_img);
-	img_temp			= cvCreateImage(sz_of_img, depth_of_img, channels_of_img);
-	img_edge_color		= cvCreateImage(sz_of_img, depth_of_img, channels_of_img);
-	img_smooth			= cvCreateImage(sz_of_img, depth_of_img, channels_of_img);
-	img_gray 			= cvCreateImage(sz_of_img, IPL_DEPTH_8U, 1);
-	img_edge_gray		= cvCreateImage(sz_of_img, IPL_DEPTH_8U, 1);
-	img_contour 		= cvCreateImage(sz_of_img, IPL_DEPTH_8U, 1);
-	img_moving_avg 		= cvCreateImage(sz_of_img, IPL_DEPTH_32F, 3);
-    
-    initialized         = true;
-	mem_store 			= cvCreateMemStorage(0);
-}
-
-void destroy(void) {
-    initialized         = false; 
-	cvReleaseMemStorage(&mem_store);
-	cvReleaseImage(&img_work);
-	cvReleaseImage(&img_smooth);
-	cvReleaseImage(&img_temp);
-	cvReleaseImage(&img_color);
-	cvReleaseImage(&img_diff);
-	cvReleaseImage(&img_gray);
-	cvReleaseImage(&img_contour);
-	cvReleaseImage(&img_moving_avg);
-	cvReleaseImage(&img_edge_color);
-	cvReleaseImage(&img_edge_gray);
-}
-
-
-
-/*****************************************************
- * display the frames in a window
- *****************************************************/
-/**
-void display_frame(bool motion_detected) {
-	if(motion_detected) 							param_proc_delay = MIN_PROC_DELAY;
-	else if(param_proc_delay < MAX_PROC_DELAY)		param_proc_delay += 10;
-
-	if(1 == param_display_stage) cvShowImage(WINDOW_NAME, img_color);
-}
-**/
-/*****************************************************
- * MonitorMe Extension
- * Expected:
- *  - Image is downsized to approriate resolution
- *****************************************************/
-int monitorMe_Img(IplImage *img_inpt){
-    
-	get_approp_size(img_inpt, sz_of_img, depth_of_img, channels_of_img);
-    if (initialized = false){
-        init(); // Intialize working files
-    }
-    
-    // Make sure input image is in correct size
-    //
-    cvResize(img_inpt, img_work);
-    
-    // smoothen the image
-    cvSmooth(img_work, img_smooth, CV_BILATERAL, 5, 5, 30, 30);
-
-    // increase contrast and adjust brightness
-    cvAddWeighted(img_smooth, 1, img_smooth, 1, param_brightness_factor-50, img_color);
-
-    // increase contrast further if specified
-    for(int contrast_idx = 0; contrast_idx < param_contrast_factor; contrast_idx++) {
-        cvAddWeighted(img_color, 1, img_color, 1, 0, img_color);
-    }
-
-    cvLaplace(img_color, img_edge_color, 3);
-    cvCvtColor(img_edge_color, img_edge_gray, CV_RGB2GRAY);
-    cvThreshold(img_edge_gray, img_edge_gray, 25+param_detect_threshold, 255, CV_THRESH_BINARY);
-    cvCvtColor(img_edge_gray, img_edge_color, CV_GRAY2RGB);
-    cvAdd(img_edge_color, img_color, img_color, NULL);
-
-    if (img_moving_avg == NULL) {
-        cvConvertScale(img_color, img_moving_avg, 1.0, 0.0);
-    }
-    else {
-        cvRunningAvg(img_color, img_moving_avg, ((float)param_moving_avg_wt)/100.0, NULL);
-    }
-
-    cvConvertScale(img_moving_avg, img_temp, 1.0, 0);									// convert the moving avg to a format usable for diff
-    cvAbsDiff(img_color, img_temp, img_diff);											// subtract current from moving average.
-    cvCvtColor(img_diff, img_gray, CV_RGB2GRAY);										// convert image to gray
-    cvThreshold(img_gray, img_gray, 25+param_detect_threshold, 255, CV_THRESH_BINARY);	// convert image to black and white
-
-    // dilate and erode to reduce noise and join irregular blobs
-    cvErode(img_gray, img_gray, 0, 2); 							// erode to remove noise
-    cvDilate(img_gray, img_gray, 0, param_dilation_amt+2);		// dilate to join and fill blobs
-    cvErode(img_gray, img_gray, 0, param_erosion_amt);			// erode again to get some of the original proportion back
-    cvConvertScale(img_gray, img_contour, 1.0, 0.0);			// copy image to the contour image for contour detection
-
-    // find the contours of the moving images in the frame.
-    cvClearMemStorage(mem_store);
-    CvSeq* contour = 0;
-    cvFindContours(img_contour, mem_store, &contour, sizeof(CvContour), CV_RETR_CCOMP, CV_CHAIN_APPROX_SIMPLE);
-
-    // process each moving contour in the current frame...
-    bool motion_detected = false;
-    for (; contour != 0; contour = contour->h_next) {
-        CvRect bnd_rect = cvBoundingRect(contour, 0);	// get a bounding rect around the moving object.
-
-        // discard objects smaller than our expected object size
-        int obj_size_pct = bnd_rect.width * bnd_rect.height * 100 / (sz_of_img.height * sz_of_img.width);
-        if (obj_size_pct < param_min_obj_size) continue;
-
-        // either draw the contours or motion detection marker
-        if(6 == param_display_stage) {
-            cvDrawContours(img_work, contour, CV_RGB(0,255,0), CV_RGB(0,255,0), 3, CV_FILLED);
-        }
-        else if(7 == param_display_stage) {
-            CvPoint center;
-            center.x = bnd_rect.x + bnd_rect.width/2;
-            center.y = bnd_rect.y + bnd_rect.height/2;
-            int rad = (bnd_rect.width < bnd_rect.height ? bnd_rect.width : bnd_rect.height)/2;
-
-            while (rad > 0) {
-                cvCircle(img_work, center, rad, CV_RGB(153,204,50), 1, CV_AA);
-                rad -= 8;
+// Check if there is motion in the result matrix
+// count the number of changes and return.
+inline int detectMotion(const Mat & motion, Mat & result,
+                 int x_start, int x_stop, int y_start, int y_stop,
+                 int max_deviation,
+                 Scalar & color)
+{
+    // calculate the standard deviation
+    Scalar mean, stddev;
+    meanStdDev(motion, mean, stddev);
+    // if not to much changes then the motion is real (neglect agressive snow, 
+    // temporary sunlight)
+    if(stddev[0] < max_deviation)
+    {
+        int number_of_changes = 0;
+        int min_x = motion.cols, max_x = 0;
+        int min_y = motion.rows, max_y = 0;
+        // loop over image and detect changes
+        for(int j = y_start; j < y_stop; j+=2){ // height
+            for(int i = x_start; i < x_stop; i+=2){ // width
+                // check if at pixel (j,i) intensity is equal to 255
+                // this means that the pixel is different in the sequence
+                // of images (prev_frame, current_frame, next_frame)
+                if(static_cast<int>(motion.at<uchar>(j,i)) == 255)
+                {
+                    number_of_changes++;
+                    if(min_x>i) min_x = i;
+                    if(max_x<i) max_x = i;
+                    if(min_y>j) min_y = j;
+                    if(max_y<j) max_y = j;
+                }
             }
         }
-        motion_detected = true;
+        if(number_of_changes){
+            //check if not out of bounds
+            if(min_x-10 > 0) min_x -= 10;
+            if(min_y-10 > 0) min_y -= 10;
+            if(max_x+10 < result.cols-1) max_x += 10;
+            if(max_y+10 < result.rows-1) max_y += 10;
+            // draw rectangle round the changed pixel
+            Point x(min_x,min_y);
+            Point y(max_x,max_y);
+            Rect rect(x,y);
+            rectangle(result,rect,color,1);
+        }
+        return number_of_changes;
     }
-    if(motion_detected) {
-        destroy();
-        return 1; // Return true there is motion
-    }
-
-	return 0;
+    return 0;
 }
 
+int monitorMe_findMotion(Mat next_frame, Mat current_frame, Mat prev_frame)
+{
+    cvtColor(current_frame, current_frame, CV_RGB2GRAY);
+    cvtColor(prev_frame, prev_frame, CV_RGB2GRAY);
+    cvtColor(next_frame, next_frame, CV_RGB2GRAY);
+    
+    Mat result = next_frame.clone();
+
+    // Motion Detection Settings
+    //
+    int number_of_changes, number_of_sequence = 0;
+    
+    // Get the curret Matrix Size
+    int y_size = current_frame.rows;
+    int x_size = current_frame.cols;
+    
+    int x_start = 10, x_stop = current_frame.cols-11;
+    int y_start = 350, y_stop = 530;
+    
+    // If more than 'there_is_motion' pixels are changed, we say there is motion
+    // and store an image on disk
+    int there_is_motion = 5;
+    
+    // Maximum deviation of the image, the higher the value, the more motion is 
+    // allowed
+    int max_deviation = 20;
+    
+    // Erode kernel
+    Mat kernel_ero = getStructuringElement(MORPH_RECT, Size(2,2));
+
+    // d1 and d2 for calculating the differences
+    // result, the result of and operation, calculated on d1 and d2
+    // number_of_changes, the amount of changes in the result matrix.
+    // color, the color for drawing the rectangle when something has changed.
+    Mat d1, d2, motion;
+
+    Scalar mean_, color(0,255,255); // yellow
+    cvtColor(next_frame, next_frame, CV_RGB2GRAY);
+    
+    // Calc differences between the images and do AND-operation
+    // threshold image, low differences are ignored (ex. contrast change due to 
+    // sunlight)
+    absdiff(prev_frame, next_frame, d1);
+    absdiff(next_frame, current_frame, d2);
+    bitwise_and(d1, d2, motion);
+    threshold(motion, motion, 35, 255, CV_THRESH_BINARY);
+    erode(motion, motion, kernel_ero);
+    
+    number_of_changes = detectMotion(motion, result, x_start, \
+        x_stop, y_start, y_stop, max_deviation, color);
+    
+    // If a lot of changes happened, we assume something changed.
+    if(number_of_changes>=there_is_motion)
+    {
+        if(number_of_sequence>0){ 
+            return 1; // There is motion in the frame
+        }
+        number_of_sequence++;
+    }
+    else
+    {
+        number_of_sequence = 0;
+    }
+    return 0;    
+}

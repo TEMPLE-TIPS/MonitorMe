@@ -1,48 +1,29 @@
 #ifndef MOTION_DETECT_H
 #define MOTION_DETECT_H
 #include <iostream>
-#include <stdlib.h>
-#include <stdio.h>
-#include <libconfig.h>
+#include <fstream>
 
-#include <opencv/cv.h>
-#include <opencv/highgui.h>
-#include <opencv2/core/core.hpp>
-#include <opencv2/imgproc/imgproc.hpp>
-#include <opencv2/highgui/highgui.hpp>
-// Header Varible Declaration
-//
+#include "opencv2/opencv.hpp"
+#include "opencv2/highgui/highgui.hpp"
+#include <time.h>
+#include <dirent.h>
+#include <sstream>
+#include <dirent.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 
 using namespace std;
 using namespace cv;
 
-extern IplImage		*img_read, *img_smooth, *img_color, *img_diff, *img_temp, *img_edge_color;
-extern IplImage		*img_work, *img_gray, *img_edge_gray, *img_contour;
-extern CvMemStorage	*mem_store;
-extern CvSize			sz_of_img;
-extern int 			depth_of_img, channels_of_img;
-extern bool         initialized;
-extern int 			param_display_stage;
-extern int 			param_moving_avg_wt; // default = 2
-extern int 			param_detect_threshold;
-extern int 			param_min_obj_size;
-extern int 			param_dilation_amt;
-extern int 			param_erosion_amt;
-extern int 			param_brightness_factor;
-extern int 			param_contrast_factor;
-extern int 			param_proc_delay;
-extern const int 		    MAX_PROC_DELAY;
-extern const int 		    MIN_PROC_DELAY;
-
-
+extern const string myDIR; // directory where the images will be stored
+extern const string myEXT; // extension of the images
+extern const int DELAY; // in mseconds, take a picture every 1/2 second
+extern const string LOGFILE;
 
 // Header Function Declaration
 //
-void print_lib_version();
-void get_approp_size(IplImage *img, CvSize &img_size, int &img_depth, int &img_channels); 
-void init(void);
-void destory(void);
-//char display_frame(bool motion_detected);
-int monitorMe_Img(IplImage *img_inpt, IplImage *img_moving_avg = NULL);
+inline int detectMotion(const Mat & motion, Mat & result, int x_start, int x_stop, int y_start, int y_stop, int max_deviation, Scalar & color);
+
+int monitorMe_findMotion(Mat next_frame, Mat current_frame, Mat prev_frame);
 
 #endif // MOTION_DETECT_H
