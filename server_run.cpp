@@ -1,4 +1,4 @@
-# include "lib/motion_detect.h"
+# include "src/opencv_dev/motion_detect.h"
 # include <stdio.h>
 # include <stdlib.h>
 # include <unistd.h>
@@ -7,8 +7,8 @@
 //int monitorMe_Img(IplImage* curFrame, CvArr* img_moving_avg = NULL)
 
 // Import Libraries
-int main (int argc, char *argv[]){
-    printf("hi");    
+int main(int argc, char* argv[]) {
+    printf("today is the day");    
     // Run program forever
 
     // Start listening for incoming connections by opening a socket
@@ -19,8 +19,9 @@ int main (int argc, char *argv[]){
 
     // If video use opencv to detect motion
     //
-    //if(monitorMe_IMG(rec_img) == 1){
+    //if(monitorMe_Img(rec_img) == 1){
         //SENDMAIL
+    //    printf("I'm here");
     //}
     // If audio use speech to detect distres
     //

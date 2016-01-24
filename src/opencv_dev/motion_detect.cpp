@@ -1,4 +1,3 @@
-
 /*
  * motion_detect.cpp
  * To accompany instructions at:
@@ -11,26 +10,22 @@
 #include <iostream>
 #include <stdlib.h>
 #include <stdio.h>
-#include <libconfig.h>
 
 #include <opencv/cv.h>
 #include <opencv/highgui.h>
 #include <opencv2/core/core.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 #include <opencv2/highgui/highgui.hpp>
-#include "../../lib/motion_detect.h"
 
 using namespace std;
 using namespace cv;
 
-const char 		*PROG_NAME;
-const char 		*WINDOW_NAME = "Motion Detect";
-IplImage		*img_read, *img_smooth, *img_color, *img_diff, *img_temp, *img_edge_color;
-IplImage		*img_work, *img_gray, *img_edge_gray, *img_contour, *img_moving_avg;
-CvCapture 		*inp_device;
+IplImage		*img_read, *img_smooth, *img_color, *img_diff, *img_temp, *img_edge_color, *img_moving_avg;
+IplImage		*img_work, *img_gray, *img_edge_gray, *img_contour;
 CvMemStorage	*mem_store;
 CvSize 			sz_of_img;
 int 			depth_of_img, channels_of_img;
+bool            initialized = false;
 
 int 			param_display_stage = 7;
 int 			param_moving_avg_wt = 1; // default = 2
@@ -40,68 +35,10 @@ int 			param_dilation_amt = 30;
 int 			param_erosion_amt = 10;
 int 			param_brightness_factor = 50;
 int 			param_contrast_factor = 0;
-const char 		*param_command_on_motion = "echo \"Motion detected!\"; sleep 10;";
-bool 			param_is_file_mode = false;
 int 			param_proc_delay = 1000;
 const int 		MAX_PROC_DELAY = 1000;
 const int 		MIN_PROC_DELAY = 100;
 
-
-/*****************************************************
- * save and load settings
- *****************************************************/
-void save_settings() {
-	config_t config;
-	config_init(&config);
-
-	config_setting_t *cfg_root = config_root_setting(&config);
-	config_setting_set_int(config_setting_add(cfg_root, "display_stage", 		CONFIG_TYPE_INT), param_display_stage);
-	config_setting_set_int(config_setting_add(cfg_root, "moving_avg_wt", 		CONFIG_TYPE_INT), param_moving_avg_wt);
-	config_setting_set_int(config_setting_add(cfg_root, "detect_threshold", 	CONFIG_TYPE_INT), param_detect_threshold);
-	config_setting_set_int(config_setting_add(cfg_root, "min_obj_size", 		CONFIG_TYPE_INT), param_min_obj_size);
-	config_setting_set_int(config_setting_add(cfg_root, "dilation_amt", 		CONFIG_TYPE_INT), param_dilation_amt);
-	config_setting_set_int(config_setting_add(cfg_root, "erosion_amt", 			CONFIG_TYPE_INT), param_erosion_amt);
-	config_setting_set_int(config_setting_add(cfg_root, "brightness_factor", 	CONFIG_TYPE_INT), param_brightness_factor);
-	config_setting_set_int(config_setting_add(cfg_root, "contrast_factor", 		CONFIG_TYPE_INT), param_contrast_factor);
-	config_setting_set_string(config_setting_add(cfg_root, "command_on_motion", CONFIG_TYPE_STRING), param_command_on_motion);
-
-	config_write_file(&config, "motion_detect.cfg");
-	config_destroy(&config);
-}
-
-void load_settings() {
-	config_t config;
-	config_init(&config);
-	if(CONFIG_TRUE != config_read_file(&config, "motion_detect.cfg")) return;
-
-	config_setting_t *cfg_root = config_root_setting(&config);
-	param_display_stage 		= config_setting_get_int(config_setting_get_member(cfg_root, "display_stage"));
-	param_moving_avg_wt 		= config_setting_get_int(config_setting_get_member(cfg_root, "moving_avg_wt"));
-	param_detect_threshold 		= config_setting_get_int(config_setting_get_member(cfg_root, "detect_threshold"));
-	param_min_obj_size 			= config_setting_get_int(config_setting_get_member(cfg_root, "min_obj_size"));
-	param_dilation_amt 			= config_setting_get_int(config_setting_get_member(cfg_root, "dilation_amt"));
-	param_erosion_amt 			= config_setting_get_int(config_setting_get_member(cfg_root, "erosion_amt"));
-	param_brightness_factor 	= config_setting_get_int(config_setting_get_member(cfg_root, "brightness_factor"));
-	param_contrast_factor 		= config_setting_get_int(config_setting_get_member(cfg_root, "contrast_factor"));
-
-    config_setting_t *on_motion_setting = config_setting_get_member(cfg_root, "command_on_motion");
-	if(NULL != on_motion_setting) param_command_on_motion = config_setting_get_string(on_motion_setting);
-	else param_command_on_motion = NULL;
-
-
-	if(NULL == param_command_on_motion) param_command_on_motion = "echo \"Motion detected!\"; sleep 10;";
-	else param_command_on_motion = strdup(param_command_on_motion);			// make a copy so that we can destroy the config structure
-
-	config_destroy(&config);
-}
-
-/*****************************************************
- * print program usage and exit if instructed to
- *****************************************************/
-void print_usage(int do_exit) {
-	printf("Usage %s [cam <camera #> | file <video file>] [act]\n", PROG_NAME);
-	if(do_exit) exit(1);
-}
 
 /*****************************************************
  * print what optimization libraries are available
@@ -116,8 +53,7 @@ void print_lib_version() {
 /*****************************************************
  * limit max size of image to be processed to 800x600
  *****************************************************/
-void get_approp_size(CvCapture *input, CvSize &img_size, int &img_depth, int &img_channels) {
-	IplImage *img = cvQueryFrame(input);
+void get_approp_size(IplImage *img, CvSize &img_size, int &img_depth, int &img_channels) {
 	CvSize ori_size = cvGetSize(img);
 	img_depth = img->depth;
 	img_channels = img->nChannels;
@@ -132,49 +68,10 @@ void get_approp_size(CvCapture *input, CvSize &img_size, int &img_depth, int &im
 	img_size.height = ori_size.height * div_frac;
 	img_size.width = ori_size.width * div_frac;
 }
-
-/*****************************************************
- * create capture input either from file or camera
- *****************************************************/
-CvCapture *capture_input(int argc, char **argv) {
-	PROG_NAME = argv[0];
-	if (argc < 2) print_usage(1);
-
-	CvCapture *input;
-	if(0 == strcasecmp("file", argv[1])) {
-		input = cvCreateFileCapture(argv[2]);
-		param_is_file_mode = true;
-	} else if(0 == strcasecmp("cam", argv[1])) {
-		input = cvCreateCameraCapture(atoi(argv[2]));
-	}
-	else {
-		print_usage(1);
-		exit(1);
-	}
-
-	if (!input) {
-		printf("Can't open %s %s\n", argv[1], argv[2]);
-		exit(1);
-	}
-	return input;
-}
-
 /*****************************************************
  * init and destroy globals
  *****************************************************/
-void init(bool is_silent_mode) {
-	if(!is_silent_mode) {
-		cvNamedWindow(WINDOW_NAME, CV_WINDOW_AUTOSIZE);			//Create a new window.
-		cvCreateTrackbar("Process Stage", WINDOW_NAME, &param_display_stage, 7, NULL);
-		cvCreateTrackbar("Moving Avg Wt", WINDOW_NAME, &param_moving_avg_wt, 50, NULL);
-		cvCreateTrackbar("Threshold", WINDOW_NAME, &param_detect_threshold, 100, NULL);
-		cvCreateTrackbar("Min Object Size", WINDOW_NAME, &param_min_obj_size, 25, NULL);
-		cvCreateTrackbar("Dilation", WINDOW_NAME, &param_dilation_amt, 50, NULL);
-		cvCreateTrackbar("Erosion", WINDOW_NAME, &param_erosion_amt, 50, NULL);
-		cvCreateTrackbar("Brightness", WINDOW_NAME, &param_brightness_factor, 100, NULL);
-		cvCreateTrackbar("Contrast", WINDOW_NAME, &param_contrast_factor, 10, NULL);
-	}
-
+void init(void) {
 	img_work			= cvCreateImage(sz_of_img, depth_of_img, channels_of_img);
 	img_color			= cvCreateImage(sz_of_img, depth_of_img, channels_of_img);
 	img_diff			= cvCreateImage(sz_of_img, depth_of_img, channels_of_img);
@@ -185,11 +82,13 @@ void init(bool is_silent_mode) {
 	img_edge_gray		= cvCreateImage(sz_of_img, IPL_DEPTH_8U, 1);
 	img_contour 		= cvCreateImage(sz_of_img, IPL_DEPTH_8U, 1);
 	img_moving_avg 		= cvCreateImage(sz_of_img, IPL_DEPTH_32F, 3);
-
+    
+    initialized         = true;
 	mem_store 			= cvCreateMemStorage(0);
 }
 
-void destroy(bool is_silent_mode) {
+void destroy(void) {
+    initialized         = false; 
 	cvReleaseMemStorage(&mem_store);
 	cvReleaseImage(&img_work);
 	cvReleaseImage(&img_smooth);
@@ -201,44 +100,39 @@ void destroy(bool is_silent_mode) {
 	cvReleaseImage(&img_moving_avg);
 	cvReleaseImage(&img_edge_color);
 	cvReleaseImage(&img_edge_gray);
-	if(!is_silent_mode) cvDestroyWindow(WINDOW_NAME);
-	cvReleaseCapture(&inp_device);
 }
+
 
 
 /*****************************************************
  * display the frames in a window
  *****************************************************/
-char display_frame(bool motion_detected) {
+/**
+void display_frame(bool motion_detected) {
 	if(motion_detected) 							param_proc_delay = MIN_PROC_DELAY;
 	else if(param_proc_delay < MAX_PROC_DELAY)		param_proc_delay += 10;
 
 	if(1 == param_display_stage) cvShowImage(WINDOW_NAME, img_color);
-	else if((0 == param_display_stage) || (6 == param_display_stage) || (7 == param_display_stage)) {
-		cvShowImage(WINDOW_NAME, img_work);
-	}
-	else if(2 == param_display_stage) 	cvShowImage(WINDOW_NAME, img_edge_gray);
-	else if(3 == param_display_stage)	cvShowImage(WINDOW_NAME, img_diff);
-	else if(4 == param_display_stage) 	cvShowImage(WINDOW_NAME, img_gray);
-	else if(5 == param_display_stage) 	cvShowImage(WINDOW_NAME, img_contour);
-
-	// break if escape was pressed
-	return cvWaitKey(param_is_file_mode ? 10 : param_proc_delay);
 }
-
-
+**/
 /*****************************************************
  * MonitorMe Extension
  * Expected:
  *  - Image is downsized to approriate resolution
  *****************************************************/
-int monitorMe_Img(IplImage* curFrame, CvArr* img_moving_avg = NULL){
-
-	get_approp_size(inp_device, sz_of_img, depth_of_img, channels_of_img);
-    init(1); // We are in action mode
-
+int monitorMe_Img(IplImage *img_inpt){
+    
+	get_approp_size(img_inpt, sz_of_img, depth_of_img, channels_of_img);
+    if (initialized = false){
+        init(); // Intialize working files
+    }
+    
+    // Make sure input image is in correct size
+    //
+    cvResize(img_inpt, img_work);
+    
     // smoothen the image
-    cvSmooth(img_read, img_smooth, CV_BILATERAL, 5, 5, 30, 30);
+    cvSmooth(img_work, img_smooth, CV_BILATERAL, 5, 5, 30, 30);
 
     // increase contrast and adjust brightness
     cvAddWeighted(img_smooth, 1, img_smooth, 1, param_brightness_factor-50, img_color);
@@ -304,10 +198,10 @@ int monitorMe_Img(IplImage* curFrame, CvArr* img_moving_avg = NULL){
         motion_detected = true;
     }
     if(motion_detected) {
-        destroy(1);
+        destroy();
         return 1; // Return true there is motion
     }
-	destroy(1);
 
 	return 0;
 }
+
