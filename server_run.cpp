@@ -1,4 +1,4 @@
-# include "src/opencv_dev/motion_detect.h"
+# include "src/opencv_dev/motion_detection.h"
 # include "src/server_capture/server_capture.h"
 
 # include <stdio.h>
@@ -16,7 +16,6 @@
 # include <iostream>
 # include <fstream>
 
-//#include <highgui.h>
 # include "opencv2/highgui/highgui.hpp"
 # include "opencv2/core/core.hpp"
 
@@ -174,14 +173,15 @@ int main(int argc, char* argv[]) {
         current_frame = next_frame.clone();
         // Compare the last three frames and see if there is movement
         //
-        if (monitorMe_findMotion(next_frame, current_frame, \
-                    prev_frame) == true)
+        Mat* mats[] = {&current_frame, &prev_frame};
+
+        if (temple_tips::detect_motion(mats, 2, 20, 0.1) == true)
         {
             // First save the images
             //
             saveImg(current_frame,myDIR,myEXT,DIR_FORMAT.c_str(),\
                     FILE_FORMAT.c_str());
-            //send_alert();
+            send_alert();
         }
 
     }
@@ -190,6 +190,7 @@ int main(int argc, char* argv[]) {
         exit(1);
     }
     puts("Client disconnected");
+    close(newsockfd);
     return 0;
 }
 

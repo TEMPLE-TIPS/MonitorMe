@@ -20,7 +20,7 @@ server_run.exe:
 	g++ \
 		server_run.cpp \
 		./src/server_capture/server_capture.cpp \
-		./src/opencv_dev/motion_detect.cpp \
+		./src/opencv_dev/motion_detection.cpp \
 		-o server_run.exe \
 		$(INCLUDES) $(LFLAGS) $(LDLIBS)
 
